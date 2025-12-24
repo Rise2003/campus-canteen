@@ -1,0 +1,23 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: campus-canteen-content
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost/campus_canteen_db?serverTimezone=UTC&useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+
+# Knife4j 配置
+knife4j:
+  enable: true
+  production: false
+  setting:
+    language: zh-CN
+    enable-swagger-models: true
+    enable-search: true
+# 日志文件配置路径
+logging:
+  config: classpath:log4j2-dev.xml
