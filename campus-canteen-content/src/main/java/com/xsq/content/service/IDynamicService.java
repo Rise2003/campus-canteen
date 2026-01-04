@@ -25,6 +25,11 @@ public interface IDynamicService extends IService<Dynamic> {
     DynamicVO getDynamicDetail(Long dynamicId, Long currentUserId);
 
     /**
+     * 批量获取动态详情（按传入 dynamicIds 的顺序返回；不存在/非正常状态的动态会被跳过）
+     */
+    List<DynamicVO> getDynamicDetails(List<Long> dynamicIds, Long currentUserId);
+
+    /**
      * 增加动态浏览量
      */
     boolean incrementViewCount(Long dynamicId);

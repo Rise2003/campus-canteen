@@ -89,6 +89,7 @@
             <artifactId>okhttp</artifactId>
         </dependency>
 
+
         <!-- 6. 开发工具 -->
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -106,6 +107,37 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <!-- ES -->
+        <dependency>
+            <groupId>org.elasticsearch.client</groupId>
+            <artifactId>elasticsearch-rest-high-level-client</artifactId>
+            <exclusions>
+                <!-- 避免传递依赖拉入不同版本的 ES Core / Rest Client -->
+                <exclusion>
+                    <groupId>org.elasticsearch</groupId>
+                    <artifactId>elasticsearch</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.elasticsearch.client</groupId>
+                    <artifactId>elasticsearch-rest-client</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- 强制统一 ES Core 版本（必须与 high level client 一致） -->
+        <dependency>
+            <groupId>org.elasticsearch</groupId>
+            <artifactId>elasticsearch</artifactId>
+            <version>${elasticsearch-rest-high-level-client.version}</version>
+        </dependency>
+
+        <!-- 强制统一 low level rest client 版本 -->
+        <dependency>
+            <groupId>org.elasticsearch.client</groupId>
+            <artifactId>elasticsearch-rest-client</artifactId>
+            <version>${elasticsearch-rest-high-level-client.version}</version>
         </dependency>
     </dependencies>
 

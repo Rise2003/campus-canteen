@@ -21,3 +21,9 @@ knife4j:
 # 日志文件配置路径
 logging:
   config: classpath:log4j2-dev.xml
+# OSS 配置
+oss:
+  accessKey: ${OSS_ACCESS_KEY:hmnsNF1WwJMUaDp00aVwjVaGN1dmettsLSvTgovj}
+  secretKey: ${OSS_SECRET_KEY:hmnsNF1WwJMUaDp00aVwjVaGN1dmettsLSvTgovj}
+  bucket: ${OSS_BUCKET:campus-canteen}
+  domain: ${OSS_DOMAIN:https://t7th4rtp3.hn-bkt.clouddn.com}

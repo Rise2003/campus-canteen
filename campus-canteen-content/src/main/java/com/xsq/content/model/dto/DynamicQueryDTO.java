@@ -23,6 +23,8 @@ public class DynamicQueryDTO {
 
     private String order;
 
+    private Long dishId;
+
     private Long canteenId;
 
     private Long userId;

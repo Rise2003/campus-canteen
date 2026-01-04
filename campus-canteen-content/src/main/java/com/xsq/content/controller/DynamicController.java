@@ -41,6 +41,7 @@ public class DynamicController {
             @RequestParam(defaultValue = "createdAt") String sort,
             @Parameter(description = "排序方向: desc, asc")
             @RequestParam(defaultValue = "desc") String order,
+            @Parameter(description = "菜品ID筛选") @RequestParam(required = false) Long dishId,
             @Parameter(description = "食堂ID筛选") @RequestParam(required = false) Long canteenId,
             @Parameter(description = "用户ID筛选") @RequestParam(required = false) Long userId,
             @Parameter(description = "关键词搜索") @RequestParam(required = false) String keyword,
@@ -61,6 +62,7 @@ public class DynamicController {
                     .size(size)
                     .sort(sort)
                     .order(order)
+                    .dishId(dishId)
                     .canteenId(canteenId)
                     .userId(userId)
                     .keyword(keyword)
@@ -137,14 +139,17 @@ public class DynamicController {
     }
 
     /**
-     * 热门动态（按点赞数排序）
+     * 热门动态（按浏览量排序 + 时间范围可降级）
      */
-    @Operation(summary = "获取热门动态", description = "获取近期热门动态，按互动量排序")
+    @Operation(
+            summary = "获取热门动态",
+            description = "热门动态：按浏览量(view_count)倒序；timeRange 支持 today/week/month；体验语义：若所选范围无数据则自动降级 week->month->all"
+    )
     @GetMapping("/hot")
     public Result<DynamicListVO> getHotDynamics(
             @Parameter(description = "页码") @RequestParam(defaultValue = "1") Integer page,
             @Parameter(description = "每页数量") @RequestParam(defaultValue = "10") Integer size,
-            @Parameter(description = "时间范围：today-今天,week-本周,month-本月")
+            @Parameter(description = "时间范围：today-本日, week-本周, month-本月（体验语义会自动降级）")
             @RequestParam(defaultValue = "week") String timeRange) {
 
         try {
@@ -239,8 +244,11 @@ public class DynamicController {
 
     /**
      * 搜索动态
+     *
+     * 已迁移至 SearchController：GET /api/search/dynamics
      */
-    @Operation(summary = "搜索动态", description = "根据关键词搜索动态")
+    @Deprecated
+    @Operation(summary = "搜索动态(已迁移)", description = "请使用 /api/search/dynamics")
     @GetMapping("/search")
     public Result<DynamicListVO> searchDynamics(
             @Parameter(description = "搜索关键词", required = true) @RequestParam String keyword,
@@ -248,6 +256,7 @@ public class DynamicController {
             @Parameter(description = "每页数量") @RequestParam(defaultValue = "10") Integer size,
             HttpServletRequest request) {
 
+        // 为兼容旧前端，暂时保留一段时间：内部转调新逻辑
         try {
             Long currentUserId = getCurrentUserId(request);
 
@@ -259,8 +268,6 @@ public class DynamicController {
                     .build();
 
             DynamicListVO result = dynamicService.getDynamicList(queryDTO);
-
-            log.info("搜索动态成功，keyword={}, count={}", keyword, result.getList().size());
             return Result.success(result);
 
         } catch (Exception e) {

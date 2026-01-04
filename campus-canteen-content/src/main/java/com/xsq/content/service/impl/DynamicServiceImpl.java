@@ -1,15 +1,12 @@
 package com.xsq.content.service.impl;
 
-import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
-import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.xsq.base.exception.BusinessException;
 import com.xsq.content.mapper.DynamicMapper;
 import com.xsq.content.model.dto.DynamicDishDTO;
 import com.xsq.content.model.dto.DynamicQueryDTO;
@@ -75,6 +72,64 @@ public class DynamicServiceImpl extends ServiceImpl<DynamicMapper, Dynamic> impl
             return getNearbyDynamicList(queryDTO);
         }
 
+        if (log.isDebugEnabled()) {
+            log.debug("getDynamicList query: page={}, size={}, sort={}, order={}, timeRange={}, recommended={}, recommendedOnly={}",
+                    queryDTO.getPage(), queryDTO.getSize(), queryDTO.getSort(), queryDTO.getOrder(), queryDTO.getTimeRange(),
+                    queryDTO.getRecommended(), queryDTO.getRecommendedOnly());
+        }
+
+        // hot 的 timeRange 采用方案B：week -> month -> all
+        if ("hot".equalsIgnoreCase(sort) && StrUtil.isNotBlank(queryDTO.getTimeRange())) {
+            DynamicListVO vo = getDynamicListWithHotFallback(queryDTO);
+            if (vo != null) return vo;
+            // 理论上不会走到这里，兜底继续走通用逻辑
+        }
+
+        LambdaQueryWrapper<Dynamic> wrapper = buildQueryWrapper(queryDTO);
+        Page<Dynamic> page = new Page<>(safePage(queryDTO.getPage()), safeSize(queryDTO.getSize()));
+        Page<Dynamic> dynamicPage = this.page(page, wrapper);
+
+        List<DynamicVO> vos = toVOList(dynamicPage.getRecords(), queryDTO.getCurrentUserId());
+        return DynamicListVO.success(vos, dynamicPage.getTotal(), safePage(queryDTO.getPage()), safeSize(queryDTO.getSize()));
+    }
+
+    private DynamicListVO getDynamicListWithHotFallback(DynamicQueryDTO queryDTO) {
+        // 复制 dto，避免修改入参对象造成上层复用时的副作用
+        DynamicQueryDTO dto = DynamicQueryDTO.builder()
+                .page(queryDTO.getPage())
+                .size(queryDTO.getSize())
+                .sort(queryDTO.getSort())
+                .order(queryDTO.getOrder())
+                .dishId(queryDTO.getDishId())
+                .canteenId(queryDTO.getCanteenId())
+                .userId(queryDTO.getUserId())
+                .keyword(queryDTO.getKeyword())
+                .recommendedOnly(queryDTO.getRecommendedOnly())
+                .recommended(queryDTO.getRecommended())
+                .followingOnly(queryDTO.getFollowingOnly())
+                .currentUserId(queryDTO.getCurrentUserId())
+                .timeRange(queryDTO.getTimeRange())
+                .latitude(queryDTO.getLatitude())
+                .longitude(queryDTO.getLongitude())
+                .radius(queryDTO.getRadius())
+                .minRating(queryDTO.getMinRating())
+                .build();
+
+        // 1) 原样（默认 week）
+        DynamicListVO first = getDynamicListOnce(dto);
+        if (first.getTotal() != null && first.getTotal() > 0) return first;
+
+        // 2) 降级 month
+        dto.setTimeRange("month");
+        DynamicListVO second = getDynamicListOnce(dto);
+        if (second.getTotal() != null && second.getTotal() > 0) return second;
+
+        // 3) 再降级到全量（不加时间过滤）
+        dto.setTimeRange(null);
+        return getDynamicListOnce(dto);
+    }
+
+    private DynamicListVO getDynamicListOnce(DynamicQueryDTO queryDTO) {
         LambdaQueryWrapper<Dynamic> wrapper = buildQueryWrapper(queryDTO);
         Page<Dynamic> page = new Page<>(safePage(queryDTO.getPage()), safeSize(queryDTO.getSize()));
         Page<Dynamic> dynamicPage = this.page(page, wrapper);
@@ -396,12 +451,14 @@ public class DynamicServiceImpl extends ServiceImpl<DynamicMapper, Dynamic> impl
                 wrapper.orderBy(true, asc, Dynamic::getCommentCount).orderByDesc(Dynamic::getCreatedAt);
                 break;
             case "hot":
-                wrapper.orderBy(true, asc, Dynamic::getLikeCount)
-                        .orderBy(true, asc, Dynamic::getCommentCount)
+                // 需求：热门按 view_count 排序（浏览量越高越靠前），方向固定 desc
+                wrapper.orderByDesc(Dynamic::getViewCount)
                         .orderByDesc(Dynamic::getCreatedAt);
                 break;
             case "recommend":
-                wrapper.orderByDesc(Dynamic::getIsRecommended).orderByDesc(Dynamic::getCreatedAt);
+                // 需求：推荐按 like_count 排序（点赞越多越靠前），方向固定 desc
+                wrapper.orderByDesc(Dynamic::getLikeCount)
+                        .orderByDesc(Dynamic::getCreatedAt);
                 break;
             default:
                 wrapper.orderByDesc(Dynamic::getCreatedAt);
@@ -692,5 +749,44 @@ public class DynamicServiceImpl extends ServiceImpl<DynamicMapper, Dynamic> impl
         return r * c;
     }
 
+    @Override
+    public List<DynamicVO> getDynamicDetails(List<Long> dynamicIds, Long currentUserId) {
+        if (dynamicIds == null || dynamicIds.isEmpty()) return Collections.emptyList();
+
+        // 去重但保留原始顺序
+        List<Long> orderedDistinct = dynamicIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (orderedDistinct.isEmpty()) return Collections.emptyList();
+
+        // 一次性拉取 dynamic 记录
+        List<Dynamic> dynamics = this.listByIds(orderedDistinct);
+        if (dynamics == null || dynamics.isEmpty()) return Collections.emptyList();
+
+        // 过滤掉非正常状态（与 getDynamicDetail 一致）
+        List<Dynamic> normalList = dynamics.stream()
+                .filter(d -> d != null && Objects.equals(d.getStatus(), STATUS_NORMAL))
+                .collect(Collectors.toList());
+        if (normalList.isEmpty()) return Collections.emptyList();
+
+        // 批量组装（内部会批量 user/canteen + 批量 like/collect/follow）
+        List<DynamicVO> voList = toVOList(normalList, currentUserId);
+        if (voList.isEmpty()) return Collections.emptyList();
+
+        Map<Long, DynamicVO> voMap = new HashMap<>();
+        for (DynamicVO vo : voList) {
+            if (vo != null && vo.getId() != null) {
+                voMap.put(vo.getId(), vo);
+            }
+        }
+
+        List<DynamicVO> ordered = new ArrayList<>();
+        for (Long id : orderedDistinct) {
+            DynamicVO vo = voMap.get(id);
+            if (vo != null) ordered.add(vo);
+        }
+        return ordered;
+    }
 
 }
